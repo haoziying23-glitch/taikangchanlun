@@ -1,0 +1,1364 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>泰康ETF缠论实时看板</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #20242a;
+      --muted: #667085;
+      --grid: #e5e7eb;
+      --up: #d44b45;
+      --down: #177d55;
+      --bi: #1f5fbf;
+      --seg: #7c3aed;
+      --zs: rgba(234, 179, 8, .18);
+      --zs-border: rgba(180, 83, 9, .8);
+      --buy: #0f766e;
+      --sell: #b42318;
+      --fx: #9333ea;
+      --live: #ea580c;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+      font: 14px/1.45 "Segoe UI", "Microsoft YaHei", Arial, sans-serif; }
+    .app { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: 100vh; }
+    main { padding: 16px; min-width: 0; }
+    aside { border-left: 1px solid #d9dee7; background: var(--panel); padding: 16px; overflow: auto; max-height: 100vh; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0; font-weight: 650; }
+    .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .tabs, .tools, .toggles { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button, label.toggle {
+      border: 1px solid #cfd6e3; background: #fff; color: #20242a; height: 34px; padding: 0 11px;
+      border-radius: 6px; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 6px; user-select: none;
+    }
+    button.active { background: #1f2937; color: #fff; border-color: #1f2937; }
+    label.toggle input { margin: 0; }
+    .chart-wrap { background: var(--panel); border: 1px solid #d9dee7; border-radius: 8px; overflow: hidden; position: relative; min-height: 380px; }
+    /* 走势图高度自适应视口，保证底部时间轴在首屏可见 */
+    canvas { width: 100%; height: calc(100vh - 235px); min-height: 360px; max-height: 580px; display: block; cursor: crosshair; }
+    .tooltip { position: absolute; pointer-events: none; background: rgba(17,24,39,.94); color: #fff; padding: 8px 10px; border-radius: 6px; min-width: 170px; font-size: 12px; display: none; z-index: 5; white-space: pre-line; }
+    .panel-title { font-size: 15px; font-weight: 650; margin: 0 0 10px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-bottom: 16px; }
+    .stat { border: 1px solid #e3e7ee; border-radius: 7px; padding: 9px; background: #fbfcfe; }
+    .stat b { display: block; font-size: 18px; }
+    .stat span { color: var(--muted); font-size: 12px; }
+    .legend { display: grid; gap: 8px; margin: 12px 0 18px; }
+    .legend div { display: flex; align-items: center; gap: 8px; color: #344054; }
+    .swatch { width: 20px; height: 3px; border-radius: 2px; display: inline-block; }
+    .swatch-box { width: 16px; height: 12px; border-radius: 2px; display: inline-block; border: 1px solid var(--zs-border); background: var(--zs); }
+    .swatch-live { width: 20px; height: 0; border-top: 2px dashed var(--live); display: inline-block; }
+    .note { border-top: 1px solid #e3e7ee; padding-top: 12px; color: #475467; font-size: 13px; }
+    .list { display: grid; gap: 8px; margin-top: 10px; }
+    .item { border: 1px solid #e3e7ee; border-radius: 7px; padding: 9px; background: #fff; }
+    .item strong { display: block; margin-bottom: 3px; }
+    .item small { color: var(--muted); }
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      aside { max-height: none; border-left: 0; border-top: 1px solid #d9dee7; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      canvas { height: calc(100vh - 220px); min-height: 300px; max-height: 480px; } .chart-wrap { min-height: 300px; }
+    }
+
+    /* 实时 ticker */
+    .ticker { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+    .ticker .name { font-size: 15px; font-weight: 650; }
+    .ticker .price { font-size: 30px; font-weight: 700; letter-spacing: .5px; }
+    .ticker .pct { font-size: 16px; font-weight: 600; }
+    .ticker .ohl { color: var(--muted); font-size: 13px; }
+    .badge { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid #cfd6e3; color: #475467; background: #fff; }
+    .badge.on { background: #ecfdf3; border-color: #abefc6; color: #067647; }
+    .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+    /* 操作建议面板（结尾） */
+    .suggest { margin: 0 0 18px; background: var(--panel); border: 1px solid #d9dee7; border-radius: 10px; padding: 16px 18px; }
+    .suggest h2 { font-size: 17px; margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
+    .bias { font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 999px; }
+    .bias.bull { background: #fef3f2; color: var(--up); border: 1px solid #fecdca; }
+    .bias.bear { background: #ecfdf3; color: var(--down); border: 1px solid #abefc6; }
+    .bias.flat { background: #fffaeb; color: #b54708; border: 1px solid #fedf89; }
+    .suggest ul { margin: 0; padding-left: 20px; line-height: 1.9; }
+    .suggest ul li { margin-bottom: 4px; }
+    .suggest .risk { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e3e7ee; color: var(--muted); font-size: 12.5px; }
+    .live-bar { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; margin: 8px 0 12px; }
+    .live-bar .cell { background: #f8fafc; border: 1px solid #e3e7ee; border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+    .live-bar .cell b { font-size: 14px; display: block; }
+    .live-bar .cell span { color: var(--muted); font-size: 11px; }
+    .live-bar .cell.pos { background: #fef3f2; border-color: #fecdca; }
+    .live-bar .cell.neg { background: #ecfdf3; border-color: #abefc6; }
+    .live-bar .cell.neutral { background: #fffaeb; border-color: #fedf89; }
+    .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--live); margin-right:6px; animation: pulse 1.4s infinite; }
+    @keyframes pulse { 0%{opacity:.3} 50%{opacity:1} 100%{opacity:.3} }
+  </style>
+<script src="https://beacon.cdn.qq.com/sdk/4.5.9/beacon_web.min.js"></script>
+<script>
+(function(){
+  try{
+    var beacon=new BeaconAction({
+      appkey:'0WEB06U85YBSLJNL',
+      versionCode:'1.0.0',
+      channelID:'share',
+      delay:1000,
+      sessionDuration:30*60*1000,
+      isOversea:false,
+      needReportRqdEvent:false
+    });
+    beacon.onDirectUserAction('preview_page_view',{
+      'url':location.href,
+      'referrer':document.referrer,
+      'title':document.title,
+      'sandbox_id':'661534f7fd7e41f69a7ac540f3f3b0c6'
+    });
+  }catch(e){}
+})();
+</script></head>
+<body>
+  <div class="app">
+    <main>
+      <div class="topbar">
+        <div>
+          <h1>泰康ETF缠论实时看板 <select id="symbolSelect" style="font-size:14px; height:32px; margin-left:8px; vertical-align:middle; padding:0 8px; border:1px solid #cfd6e3; border-radius:6px;">
+            <option value="sh515380" selected>515380 沪深300ETF泰康</option>
+            <option value="sh515530">515530 中证500ETF泰康</option>
+            <option value="sh560510">560510 中证A500ETF泰康</option>
+            <option value="sh560150">560150 红利低波ETF泰康</option>
+            <option value="sz159720">159720 智能车ETF泰康</option>
+            <option value="sh560560">560560 碳中和ETF泰康</option>
+            <option value="sz159760">159760 医疗健康ETF泰康</option>
+            <option value="sh551580">551580 科创债ETF泰康</option>
+            <option value="sz159163">159163 有色ETF泰康</option>
+            <option value="sh000001">000001 上证指数</option>
+            <option value="sz000300">000300 沪深300指数</option>
+            <option value="sh000905">000905 中证500指数</option>
+          </select></h1>
+          <div class="sub" id="mSub">Vespa314/chan.py · 五级联立 · 缠论结构实时计算</div>
+        </div>
+        <div class="tabs" id="tabs"></div>
+      </div>
+
+      <div class="topbar" style="align-items:flex-end;">
+        <div class="ticker">
+          <span class="name" id="mName">--</span>
+          <span class="price" id="mPrice">--</span>
+          <span class="pct" id="mPct">--</span>
+          <span class="badge" id="mStatus">--</span>
+          <span class="ohl" id="mOHL"></span>
+          <span class="ohl" id="mTime"></span>
+        </div>
+        <div class="tools">
+          <button id="refreshStruct" title="重新拉取K线并实时计算缠论结构">↻ 刷新结构</button>
+        </div>
+      </div>
+
+      <div class="topbar">
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" data-layer="bi" checked>笔</label>
+          <label class="toggle"><input type="checkbox" data-layer="seg" checked>线段</label>
+          <label class="toggle"><input type="checkbox" data-layer="zs" checked>中枢</label>
+          <label class="toggle"><input type="checkbox" data-layer="bsp" checked>买卖点</label>
+          <label class="toggle"><input type="checkbox" data-layer="vol" checked>成交量</label>
+          <label class="toggle"><input type="checkbox" data-layer="macd" checked>MACD</label>
+        </div>
+        <div class="tools">
+          <button id="zoomIn" title="放大">＋</button>
+          <button id="zoomOut" title="缩小">－</button>
+          <button id="reset" title="重置视图">重置</button>
+        </div>
+      </div>
+
+      <div class="chart-wrap" id="chartWrap">
+        <canvas id="chart"></canvas>
+        <div class="tooltip" id="tooltip"></div>
+      </div>
+
+      <div class="meta" id="mFresh">K线结构全量刷新: -- ｜ 实时价: 新浪财经(每3秒)</div>
+      <div class="meta" id="mUpdated"><span class="live-dot"></span>等待实时数据…</div>
+      <div class="meta" style="opacity:.5;font-size:11px">版本 <span id="mBuild">--</span> · 精度 <span id="mDigits">--</span>位</div>
+    </main>
+
+    <aside>
+      <!-- 下一步操作建议（已移至右侧栏顶部） -->
+      <section class="suggest">
+        <h2>操作建议 <span class="bias flat" id="sBias">--</span></h2>
+        <div id="sLiveBar" class="live-bar"></div>
+        <ul id="sBullets"><li>加载中…</li></ul>
+        <div class="risk" id="sRisk"></div>
+        <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #e3e7ee; color:var(--muted); font-size:12px;">💡 建议随选中级别切换——点击上方「日线/30分/15分/5分/1分」标签，建议会针对该级别重算；每3秒随实时价刷新。</div>
+        <h2 class="panel-title" style="margin-top:14px;">买卖点列表</h2>
+        <div class="list" id="bspList"></div>
+      </section>
+      <h2 class="panel-title" id="sideTitle">结构摘要</h2>
+      <div class="stat-grid" id="stats"></div>
+      <div class="legend">
+        <div><span class="swatch" style="background: var(--up)"></span>涨 K 线</div>
+        <div><span class="swatch" style="background: var(--down)"></span>跌 K 线</div>
+        <div><span class="swatch" style="background: var(--bi)"></span>笔（细紫线）</div>
+        <div><span class="swatch" style="background: var(--seg)"></span>线段（粗紫线）</div>
+        <div><span class="swatch-box"></span>中枢价格区间</div>
+        <div><span class="swatch" style="background: var(--buy)"></span>买点（▲实心=确认 △空心=参考）</div>
+        <div><span class="swatch" style="background: var(--sell)"></span>卖点（▼实心=确认 ▽空心=参考）</div>
+        <div><span class="swatch-live"></span>实时现价线</div>
+      </div>
+      <div class="note">滚轮缩放 · 按住拖拽平移 · 鼠标悬停查看 K 线明细。中枢虚线框为价格重叠区间，实心三角=确认级买卖点（趋势+背驰），空心三角=参考级。</div>
+      <h2 class="panel-title" style="margin-top:18px;">中枢列表</h2>
+      <div class="list" id="zsList"></div>
+    </aside>
+  </div>
+
+  <script src="https://96c273a102d648c990f5009c01bf043f.app.codebuddy.work/chanlun-engine.js?v=2026071701"></script>
+  <script src="https://96c273a102d648c990f5009c01bf043f.app.codebuddy.work/live-kline.js?v=2026071701"></script>
+  <script>
+    let SYMBOL = "515380";            // 标的代码（纯数字，用于显示）
+    let SYMBOL_PREFIX = "sh";          // 市场前缀 sh/sz
+    let SYMBOL_FULL = "sh515380";      // 带前缀的完整代码（用于API）
+    // 标的元信息表（名称、市场前缀、类型、价格小数位）
+    // type: 'etf' / 'index'，不同类型影响东财价格缩放和显示精度
+    const SYMBOL_META = {
+      '515380':  { name: '沪深300ETF泰康',     prefix: 'sh', type: 'etf',   digits: 3 },
+      '515530':  { name: '中证500ETF泰康',     prefix: 'sh', type: 'etf',   digits: 3 },
+      '560510':  { name: '中证A500ETF泰康',    prefix: 'sh', type: 'etf',   digits: 3 },
+      '560150':  { name: '红利低波ETF泰康',    prefix: 'sh', type: 'etf',   digits: 3 },
+      '159720':  { name: '智能车ETF泰康',      prefix: 'sz', type: 'etf',   digits: 3 },
+      '560560':  { name: '碳中和ETF泰康',      prefix: 'sh', type: 'etf',   digits: 3 },
+      '159760':  { name: '医疗健康ETF泰康',    prefix: 'sz', type: 'etf',   digits: 3 },
+      '551580':  { name: '科创债ETF泰康',      prefix: 'sh', type: 'etf',   digits: 3 },
+      '159163':  { name: '有色ETF泰康',        prefix: 'sz', type: 'etf',   digits: 3 },
+      '000001':  { name: '上证指数',           prefix: 'sh', type: 'index', digits: 2 },
+      '000300':  { name: '沪深300指数',        prefix: 'sz', type: 'index', digits: 2 },
+      '000905':  { name: '中证500指数',        prefix: 'sh', type: 'index', digits: 2 },
+    };
+    // 当前标的类型辅助函数
+    function curType() { return (SYMBOL_META[SYMBOL] || {}).type || 'etf'; }
+    function curDigits() { return (SYMBOL_META[SYMBOL] || {}).digits || 3; }
+    window.__BUILD__ = 2026071701;  // 构建版本号，用于 JSON 缓存击穿
+    // 价格格式化（根据标的类型自动选小数位：ETF=3位，指数=2位）
+    function fmt(v) { return (v != null && !isNaN(v)) ? Number(v).toFixed(curDigits()) : '--'; }
+    function fmtVol(v) { return Math.round(v).toLocaleString(); }
+    // 版本水印（让用户直观确认当前部署版本和价格精度）
+    function updateBuildBadge() {
+      const b = document.getElementById('mBuild'); if (b) b.textContent = (window.__BUILD__ || '?');
+      const d = document.getElementById('mDigits'); if (d) d.textContent = curDigits();
+    }
+    // ====== 卖点通知系统 ======
+    const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/4696b253-e13f-46d5-b8fa-4168f82aa440';
+    const LS_SELL = 'bbe_sell_seen';  // localStorage key
+    // 请求浏览器通知权限（静默，不阻塞）
+    function requestNotifyPerm() {
+      if (!('Notification' in window)) return;
+      if (Notification.permission === 'default') {
+        try { Notification.requestPermission(); } catch (_) {}
+      }
+    }
+    // 判断是否交易时段（A股 9:30-15:00，周一至周五）
+    function isTradingTime() {
+      const now = new Date();
+      const day = now.getDay();
+      if (day === 0 || day === 6) return false;
+      const t = now.getHours() * 100 + now.getMinutes();
+      return t >= 930 && t <= 1500;
+    }
+    // 获取已通知的卖点签名集合（去重用）
+    function getSeenSellSigs() {
+      try { return new Set(JSON.parse(localStorage.getItem(LS_SELL) || '[]')); }
+      catch { return new Set(); }
+    }
+    // 记录一个卖点已被通知，写入 localStorage（保留最近 200 条防溢出）
+    function markSellSeen(sig) {
+      try {
+        const s = getSeenSellSigs(); s.add(sig);
+        const arr = Array.from(s).slice(-200);
+        localStorage.setItem(LS_SELL, JSON.stringify(arr));
+      } catch {}
+    }
+    // 浏览器桌面通知
+    function browserNotify(title, body) {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      try { new Notification(title, { body, icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="%23d44b45"/><text x="32" y="44" font-size="32" text-anchor="middle" fill="white">↓</text></svg>', requireInteraction: true }); }
+      catch {}
+    }
+    // 飞书机器人推送（post 类型，UTF-8 原生支持无乱码）
+    async function feishuNotify(title, text) {
+      try {
+        const lines = text.split('\n').map(line => [{ tag: 'text', text: line }]);
+        const body = JSON.stringify({
+          msg_type: 'post',
+          content: { post: { zh_cn: { title: title, content: lines } } }
+        });
+        await fetch(FEISHU_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      } catch {}
+    }
+    // 检测所有级别新卖点并推送（调用时机：每次 recomputeAllLevels 之后）
+    // 获取今日日期串（YYYY-MM-DD），用于过滤只推今日买卖点
+    function todayStr() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    }
+    function bspSig(lv, b) {
+      const value = Number.isFinite(b && b.value) ? b.value.toFixed(4) : '';
+      return `${SYMBOL}|${lv}|${((b && b.types) || []).join(',')}|${b && b.time}|${value}`;
+    }
+    function checkNewSells() {
+      if (!DATA || !DATA.levels) return;
+      const seen = getSeenSellSigs();
+      const isTrade = isTradingTime();
+      const today = todayStr();
+      // 取已有 K 线价格区间作为合理性参考（防止异常大数被推送）
+      const refGrp = DATA.levels['1min'] || DATA.levels.daily;
+      const refBars = refGrp && refGrp.bars ? refGrp.bars : [];
+      const refMax = refBars.length ? Math.max(...refBars.map(b => b.high)) : Infinity;
+      const refMin = refBars.length ? Math.min(...refBars.map(b => b.low)) : 0;
+      const newSigs = [];
+      for (const lv of ['daily', '30min', '15min', '5min', '1min']) {
+        const grp = DATA.levels[lv]; if (!grp || !grp.chan) continue;
+        const bsps = grp.chan.bsps || [];
+        for (const b of bsps) {
+          // 只推送今日出现的严格级(strict)买卖点；partial/weak 只在页面展示，避免盘中噪音
+          if (!b.time || !b.time.startsWith(today)) continue;
+          if (b.chanlun_level !== 'strict' || b.notify === false) continue;
+          // 价格合理性校验：买卖点 value 必须落在当日 K 线价格区间的合理范围内
+          // ETF/股票：涨跌停±10%，留余量用 ±15%；指数：用 ±8%
+          // 防止瞬时脏价格（如异常价位混入实际行情）被推送
+          if (refMax < Infinity) {
+            const isIdx = (SYMBOL_META[SYMBOL] || {}).type === 'index';
+            const maxV = refMax * (isIdx ? 1.08 : 1.15);
+            const minV = refMin * (isIdx ? 0.92 : 0.85);
+            if (b.value > maxV || b.value < minV) {
+              console.warn('[checkNewSells] 买卖点价格异常被跳过: ' + lv + ' value=' + b.value + ' refRange=[' + refMin + ',' + refMax + '] 允许[' + minV.toFixed(3) + ',' + maxV.toFixed(3) + ']');
+              continue;
+            }
+          }
+          const sig = bspSig(lv, b);
+          if (seen.has(sig)) continue;
+          seen.add(sig); markSellSeen(sig);
+          newSigs.push({ sig, lv, b });
+        }
+      }
+      const notifySigs = newSigs.filter(s => s.b && s.b.time && s.b.time.startsWith(today));
+      if (!notifySigs.length) return;
+      const meta = SYMBOL_META[SYMBOL] || { name: SYMBOL };
+      const lvNames = { daily: '日线', '30min': '30分钟', '15min': '15分钟', '5min': '5分钟', '1min': '1分钟' };
+      // 格式：指数名字，买卖点类型，级别，时间，价位。二次过滤确保飞书不推非今日买卖点。
+      const items = notifySigs.map(s => {
+        const typeLabel = s.b.type_label || ((s.b.is_buy ? '买' : '卖') + (s.b.types||['?']).join(','));
+        return `${meta.name}，${typeLabel}，${lvNames[s.lv] || s.lv}，${s.b.time}，${fmt(s.b.value)}`;
+      });
+      const title = `${meta.name} 新买卖点`;
+      const body = items.join('\n');
+      browserNotify(title, body);
+      if (isTrade) feishuNotify(title, body);
+    }
+    // 首次加载后静默记录所有已有买卖点（避免历史信号被当成新通知推送）
+    function seedSeenSells() {
+      if (!DATA || !DATA.levels) return;
+      const seen = getSeenSellSigs();
+      for (const lv of ['daily', '30min', '15min', '5min', '1min']) {
+        const grp = DATA.levels[lv]; if (!grp || !grp.chan) continue;
+        for (const b of grp.chan.bsps || []) {
+          // 买卖点都记录基线，签名和 checkNewSells 保持一致
+          seen.add(bspSig(lv, b));
+        }
+      }
+      try { localStorage.setItem(LS_SELL, JSON.stringify(Array.from(seen).slice(-200))); } catch {}
+    }
+
+    let DATA = null;
+    let SNAP = null;
+    let livePrice = null;
+    const canvas = document.getElementById('chart');
+    const wrap = document.getElementById('chartWrap');
+    const ctx = canvas.getContext('2d');
+    const tip = document.getElementById('tooltip');
+    const levelNames = { daily:'日线', '30min':'30分', '15min':'15分', '5min':'5分', '1min':'1分' };
+    const initCount = { daily:264, '30min':320, '15min':320, '5min':320, '1min':320 };
+    let levels = [];
+    let state = {
+      level: null, start: 0, count: 300, dragging: false, dragX: 0, dragStart: 0,
+      layers: { bi: true, seg: true, zs: true, bsp: true, vol: true, macd: true }, hover: null
+    };
+
+    function levelData() { return DATA.levels[state.level]; }
+    function clampView() {
+      const n = levelData().bars.length;
+      state.count = Math.max(24, Math.min(state.count, n));
+      state.start = Math.max(0, Math.min(state.start, Math.max(0, n - state.count)));
+    }
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+    function parseTime(t) { return t.replace(/-/g, '/'); }
+    function visibleBars() { const d = levelData(); return d.bars.slice(state.start, state.start + state.count); }
+    function findIndexByTime(time) {
+      const bars = levelData().bars;
+      const normalized = time.slice(0, 16).replace(/\//g, '-');
+      let best = -1;
+      for (let i = 0; i < bars.length; i++) {
+        if (bars[i].time.slice(0, 16) <= normalized) best = i; else break;
+      }
+      return best;
+    }
+    function project() {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width, h = rect.height;
+      const pad = { l: 58, r: 18, t: 18, b: 48 };
+      const volH = state.layers.vol ? 72 : 0;
+      const macdH = state.layers.macd ? 96 : 0;
+      const gap = (state.layers.vol || state.layers.macd) ? 16 : 0;
+      const plotH = h - pad.t - pad.b - volH - macdH - gap;
+      const bars = visibleBars();
+      let hi = -Infinity, lo = Infinity, maxVol = 1, macdAbs = 0, difHi = -Infinity, difLo = Infinity;
+      for (const b of bars) {
+        hi = Math.max(hi, b.high); lo = Math.min(lo, b.low); maxVol = Math.max(maxVol, b.vol || 0);
+        macdAbs = Math.max(macdAbs, Math.abs(b.macd || 0), Math.abs(b.dif || 0), Math.abs(b.dea || 0));
+        difHi = Math.max(difHi, b.dif || 0, b.dea || 0, b.macd || 0);
+        difLo = Math.min(difLo, b.dif || 0, b.dea || 0, b.macd || 0);
+      }
+      const span = Math.max(hi - lo, 0.001);
+      hi += span * 0.08; lo -= span * 0.08;
+      const xStep = (w - pad.l - pad.r) / Math.max(1, bars.length);
+      const volTop = pad.t + plotH + 14;
+      const macdTop = volTop + volH + (state.layers.macd ? 10 : 0);
+      const macdMax = Math.max(Math.abs(difHi), Math.abs(difLo), macdAbs, 0.0001);
+      return {
+        w, h, pad, plotH, volH, macdH, gap, volTop, macdTop, bars, hi, lo, maxVol, macdMax, xStep,
+        x: i => pad.l + (i - state.start + 0.5) * xStep,
+        y: v => pad.t + (hi - v) / (hi - lo) * plotH,
+        volY: v => volTop + (1 - v / maxVol) * Math.max(1, volH - 18),
+        macdY: v => macdTop + macdH / 2 - (v / macdMax) * (macdH * 0.42)
+      };
+    }
+    function drawGrid(p) {
+      ctx.clearRect(0, 0, p.w, p.h);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, p.w, p.h);
+      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+      ctx.fillStyle = '#667085'; ctx.font = '12px Segoe UI, Arial';
+      for (let i = 0; i <= 5; i++) {
+        const y = p.pad.t + i * p.plotH / 5;
+        const price = p.hi - i * (p.hi - p.lo) / 5;
+        ctx.beginPath(); ctx.moveTo(p.pad.l, y); ctx.lineTo(p.w - p.pad.r, y); ctx.stroke();
+        ctx.fillText(fmt(price), 8, y + 4);
+      }
+      if (state.layers.vol) {
+        ctx.strokeStyle = '#eef1f5'; ctx.beginPath(); ctx.moveTo(p.pad.l, p.volTop); ctx.lineTo(p.w - p.pad.r, p.volTop); ctx.stroke();
+        ctx.fillStyle = '#667085'; ctx.fillText('VOL', 8, p.volTop + 12);
+      }
+      if (state.layers.macd) {
+        ctx.strokeStyle = '#eef1f5'; ctx.beginPath(); ctx.moveTo(p.pad.l, p.macdY(0)); ctx.lineTo(p.w - p.pad.r, p.macdY(0)); ctx.stroke();
+        ctx.fillStyle = '#667085'; ctx.fillText('MACD', 8, p.macdTop + 13);
+      }
+      const tickEvery = Math.max(1, Math.floor(p.bars.length / 6));
+      for (let i = 0; i < p.bars.length; i += tickEvery) {
+        const x = p.pad.l + (i + 0.5) * p.xStep;
+        const label = p.bars[i].time.slice(5);
+        ctx.fillStyle = '#667085';
+        ctx.fillText(label, Math.max(p.pad.l, Math.min(p.w - p.pad.r - 70, x - 31)), p.h - 18);
+        ctx.strokeStyle = '#f1f3f6';
+        ctx.beginPath(); ctx.moveTo(x, p.pad.t); ctx.lineTo(x, p.h - p.pad.b + 8); ctx.stroke();
+      }
+    }
+    function drawCandles(p) {
+      for (let i = 0; i < p.bars.length; i++) {
+        const b = p.bars[i], x = p.pad.l + (i + 0.5) * p.xStep;
+        const up = b.close >= b.open;
+        const color = up ? getCss('--up') : getCss('--down');
+        ctx.strokeStyle = color; ctx.fillStyle = color;
+        ctx.beginPath(); ctx.moveTo(x, p.y(b.high)); ctx.lineTo(x, p.y(b.low)); ctx.stroke();
+        const bodyTop = p.y(Math.max(b.open, b.close));
+        const bodyBot = p.y(Math.min(b.open, b.close));
+        const bw = Math.max(2, Math.min(12, p.xStep * 0.58));
+        ctx.fillRect(x - bw / 2, bodyTop, bw, Math.max(1, bodyBot - bodyTop));
+        if (state.layers.vol) {
+          ctx.globalAlpha = 0.35;
+          ctx.fillRect(x - bw / 2, p.volY(b.vol), bw, p.volTop + p.volH - 4 - p.volY(b.vol));
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+    function drawMacd(p) {
+      if (!state.layers.macd) return;
+      const zero = p.macdY(0);
+      const bw = Math.max(1, Math.min(9, p.xStep * 0.58));
+      for (let i = 0; i < p.bars.length; i++) {
+        const b = p.bars[i], x = p.pad.l + (i + 0.5) * p.xStep;
+        const y = p.macdY(b.macd || 0);
+        ctx.fillStyle = (b.macd || 0) >= 0 ? 'rgba(212,75,69,.55)' : 'rgba(23,125,85,.55)';
+        ctx.fillRect(x - bw / 2, Math.min(y, zero), bw, Math.max(1, Math.abs(zero - y)));
+      }
+      drawMacdLine(p, 'dif', '#2563eb');
+      drawMacdLine(p, 'dea', '#f59e0b');
+    }
+    function drawMacdLine(p, key, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath();
+      for (let i = 0; i < p.bars.length; i++) {
+        const x = p.pad.l + (i + 0.5) * p.xStep, y = p.macdY(p.bars[i][key] || 0);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    function drawZs(p) {
+      if (!state.layers.zs) return;
+      const zss = levelData().chan.zss || [];
+      for (const z of zss) {
+        const s = findIndexByTime(z.start_time), e = findIndexByTime(z.end_time);
+        if (e < state.start || s > state.start + state.count) continue;
+        const x1 = p.x(Math.max(s, state.start)) - p.xStep / 2;
+        const x2 = p.x(Math.min(e, state.start + state.count - 1)) + p.xStep / 2;
+        const y1 = p.y(z.high), y2 = p.y(z.low);
+        ctx.fillStyle = getCss('--zs'); ctx.strokeStyle = getCss('--zs-border');
+        ctx.lineWidth = 1.2; ctx.setLineDash(z.is_sure ? [] : [5, 4]);
+        ctx.fillRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
+        ctx.strokeRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
+        ctx.setLineDash([]);
+      }
+    }
+    function drawLineElements(p, key, color, width) {
+      const arr = levelData().chan[key] || [];
+      ctx.strokeStyle = color; ctx.lineWidth = width;
+      for (const item of arr) {
+        const s = findIndexByTime(item.start_time), e = findIndexByTime(item.end_time);
+        if (e < state.start || s > state.start + state.count) continue;
+        ctx.setLineDash(item.is_sure ? [] : [7, 5]);
+        ctx.beginPath();
+        ctx.moveTo(p.x(s), p.y(item.start_value));
+        ctx.lineTo(p.x(e), p.y(item.end_value));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    function drawBsp(p) {
+      if (!state.layers.bsp) return;
+      // 只展示 chanlun_level 为 strict 或 partial 的买卖点；weak(疑似) 不上主图
+      const bsps = (levelData().chan.bsps || []).filter(b => b.chanlun_level !== 'weak' && b.show_on_chart !== false);
+      ctx.font = 'bold 11px Segoe UI, Arial';
+      for (const b of bsps) {
+        const idx = findIndexByTime(b.time);
+        if (idx < state.start || idx >= state.start + state.count) continue;
+        const x = p.x(idx), y = p.y(b.value);
+        const lv = b.chanlun_level || 'partial';
+        const isStrict = lv === 'strict';
+        const color = b.is_buy ? getCss('--buy') : getCss('--sell');
+        const sz = 10;
+        const flipSellMarker = !b.is_buy && (y - sz - 30 < p.pad.t);
+
+        ctx.save();
+        ctx.lineWidth = 1.8;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        if (b.is_buy || flipSellMarker) {
+          ctx.moveTo(x, y + sz + 5);
+          ctx.lineTo(x - sz, y + 5);
+          ctx.lineTo(x + sz, y + 5);
+        } else {
+          ctx.moveTo(x, y - sz - 5);
+          ctx.lineTo(x - sz, y - 5);
+          ctx.lineTo(x + sz, y - 5);
+        }
+        ctx.closePath();
+        // strict = 实心三角；partial = 空心三角（只描边）
+        if (isStrict) { ctx.fill(); ctx.stroke(); }
+        else { ctx.stroke(); }
+
+        // 标签 = type_label 去掉首字（买/卖）
+        let label = b.type_label || ((b.is_buy ? '买' : '卖') + (b.types || []).join(','));
+        label = label.replace(/^[买卖]/, '');
+        ctx.font = 'bold 11px Segoe UI, Arial';
+        const tw = ctx.measureText(label).width;
+        let ty = (b.is_buy || flipSellMarker) ? (y + sz + 20) : (y - sz - 14);
+        ty = Math.max(p.pad.t + 12, Math.min(p.h - p.pad.b - 8, ty));
+        const boxX = Math.max(p.pad.l + 2, Math.min(p.w - p.pad.r - tw - 12, x - tw / 2 - 5));
+        const textX = boxX + tw / 2 + 5;
+        const boxY = ty - 10;
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fillRect(boxX, boxY, tw + 10, 16);
+        // strict = 实线边框；partial = 虚线边框（视觉弱化）
+        ctx.setLineDash(isStrict ? [] : [2, 2]);
+        ctx.strokeStyle = isStrict ? color : 'rgba(150,150,150,0.6)';
+        ctx.lineWidth = isStrict ? 1.2 : 0.8;
+        ctx.strokeRect(boxX, boxY, tw + 10, 16);
+        ctx.setLineDash([]);
+        ctx.fillStyle = isStrict ? color : 'rgba(100,100,100,0.85)';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, textX, ty + 3);
+        ctx.restore();
+      }
+    }
+    function drawLivePrice(p) {
+      if (livePrice == null) return;
+      const y = p.y(livePrice);
+      ctx.save();
+      ctx.strokeStyle = getCss('--live'); ctx.setLineDash([6, 4]); ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(p.pad.l, y); ctx.lineTo(p.w - p.pad.r, y); ctx.stroke();
+      ctx.setLineDash([]);
+      const label = '现价 ' + fmt(livePrice);
+      ctx.font = '12px Segoe UI, Arial';
+      const tw = ctx.measureText(label).width + 8;
+      ctx.fillStyle = getCss('--live');
+      ctx.fillRect(p.w - p.pad.r - tw, y - 9, tw, 18);
+      ctx.fillStyle = '#fff'; ctx.fillText(label, p.w - p.pad.r - tw + 4, y + 4);
+      ctx.restore();
+    }
+    function drawHover(p) {
+      if (state.hover == null) return;
+      const i = Math.max(0, Math.min(p.bars.length - 1, state.hover));
+      const globalI = state.start + i;
+      const x = p.x(globalI);
+      ctx.strokeStyle = 'rgba(17,24,39,.25)'; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(x, p.pad.t); ctx.lineTo(x, p.h - p.pad.b); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    function draw() {
+      clampView();
+      const p = project();
+      if (!p || p.bars.length === 0 || p.plotH <= 0) return;  // 防御：视图无效时不绘制
+      drawGrid(p);
+      drawZs(p);
+      drawCandles(p);
+      drawLivePrice(p);
+      drawMacd(p);
+      if (state.layers.bi) drawLineElements(p, 'bis', getCss('--bi'), 1.7);
+      if (state.layers.seg) drawLineElements(p, 'segs', getCss('--seg'), 3.2);
+      drawBsp(p);
+      drawHover(p);
+      renderSide();
+    }
+    function getCss(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+    function renderTabs() {
+      const tabs = document.getElementById('tabs');
+      tabs.innerHTML = '';
+      for (const lv of levels) {
+        const btn = document.createElement('button');
+        btn.textContent = levelNames[lv] || lv;
+        btn.className = lv === state.level ? 'active' : '';
+        btn.onclick = () => {
+          state.level = lv;
+          state.count = initCount[lv] || levelData().bars.length;
+          state.start = Math.max(0, levelData().bars.length - state.count);
+          renderTabs(); draw();
+          // 切换级别后立即重算操作建议（针对当前级别）
+          refreshSuggestionForCurrentLevel();
+        };
+        tabs.appendChild(btn);
+      }
+    }
+    // 根据当前级别重算操作建议（切换级别时调用）
+    function refreshSuggestionForCurrentLevel() {
+      if (!DATA || !DATA.levels) return;
+      const lastQuote = window.__lastQuote || null;
+      const s = computeSuggestionClient(DATA, lastQuote);
+      const be = document.getElementById('sBias');
+      // 标签前缀加当前级别名，让用户清楚建议针对哪个级别
+      be.textContent = (levelNames[s.level] || s.level) + ' · ' + s.bias;
+      be.className = 'bias ' + (s.bias === '偏多' ? 'bull' : (s.bias === '偏空' ? 'bear' : 'flat'));
+      document.getElementById('sBullets').innerHTML = (s.bullets || []).map(t => `<li>${t}</li>`).join('');
+      document.getElementById('sRisk').textContent = s.risk || '';
+      renderLiveBar(s, lastQuote);
+    }
+    function renderSide() {
+      const d = levelData();
+      document.getElementById('sideTitle').textContent = (levelNames[state.level] || state.level) + ' 结构摘要';
+      const c = d.chan;
+      const stats = document.getElementById('stats');
+      stats.innerHTML = [
+        ['K线', d.bars.length], ['合并K线', c.combined_kline_count], ['笔', c.bi_count],
+        ['线段', c.seg_count], ['中枢', c.zs_count], ['买卖点', c.bsp_count],
+      ].map(([k,v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+      const bspList = document.getElementById('bspList');
+      const levelWeight = { strict: 0, partial: 1, weak: 2 };
+      const allBsps = (d.chan.bsps || []).slice();
+      const bspKey = b => [b.time || '', b.value == null ? '' : b.value, b.is_buy ? 'B' : 'S', (b.types || []).join('/')].join('|');
+      const sortBsp = (a, b) => {
+        const la = levelWeight[a.chanlun_level] == null ? 9 : levelWeight[a.chanlun_level];
+        const lb = levelWeight[b.chanlun_level] == null ? 9 : levelWeight[b.chanlun_level];
+        if (la !== lb) return la - lb;
+        return String(b.time || '').localeCompare(String(a.time || ''));
+      };
+      const visibleChartBsps = allBsps
+        .filter(b => b.chanlun_level !== 'weak' && b.show_on_chart !== false)
+        .map(b => ({ b, idx: findIndexByTime(b.time) }))
+        .filter(x => x.idx >= state.start && x.idx < state.start + state.count)
+        .sort((a, b) => String(b.b.time || '').localeCompare(String(a.b.time || '')))
+        .map(x => Object.assign({ __in_view: true }, x.b));
+      const usedBspKeys = new Set(visibleChartBsps.map(bspKey));
+      const fillerBsps = allBsps
+        .filter(b => !usedBspKeys.has(bspKey(b)))
+        .sort(sortBsp);
+      const recentBsps = visibleChartBsps.concat(fillerBsps).slice(0, 24);
+      bspList.innerHTML = recentBsps.map(b => {
+        const label = b.type_label || (b.is_buy ? '买点' : '卖点') + ' ' + b.types.join(',');
+        const levelMap = { strict: '确认', partial: '参考', weak: '疑似' };
+        const levelColor = { strict: '#16a34a', partial: '#d97706', weak: '#9ca3af' };
+        const view = b.__in_view ? ' <span style="color:#2563eb;font-size:11px">当前图</span>' : '';
+        const lvText = b.chanlun_level ? ` <span style="color:${levelColor[b.chanlun_level]||'#888'};font-size:11px">[${levelMap[b.chanlun_level] || b.chanlun_level}]</span>` : '';
+        return `<div class="item"><strong style="color:${b.is_buy ? getCss('--buy') : getCss('--sell')}">${label}${view}${lvText}</strong>
+        <small>${b.time} ｜ ${fmt(b.value)}</small></div>`;
+      }).join('') || '<div class="item"><small>当前级别暂无买卖点</small></div>';
+      const zsList = document.getElementById('zsList');
+      zsList.innerHTML = (d.chan.zss || []).slice(-8).reverse().map(z => `
+        <div class="item"><strong>中枢 #${z.idx} ${z.is_sure ? '' : '未确认'}</strong>
+        <small>${z.start_time} 至 ${z.end_time}<br>区间 ${fmt(z.low)} - ${fmt(z.high)}</small></div>`).join('') || '<div class="item"><small>当前级别暂无中枢</small></div>';
+    }
+    function updateTooltip(evt) {
+      const p = project();
+      const rect = canvas.getBoundingClientRect();
+      const x = evt.clientX - rect.left;
+      const i = Math.floor((x - p.pad.l) / p.xStep);
+      if (i < 0 || i >= p.bars.length) { tip.style.display = 'none'; state.hover = null; draw(); return; }
+      state.hover = i;
+      const b = p.bars[i], globalI = state.start + i;
+      const near = [];
+      for (const bi of levelData().chan.bis || []) {
+        const s = findIndexByTime(bi.start_time), e = findIndexByTime(bi.end_time);
+        if (globalI === s || globalI === e) near.push(`笔#${bi.idx} ${bi.direction}`);
+      }
+      for (const z of levelData().chan.zss || []) {
+        const s = findIndexByTime(z.start_time), e = findIndexByTime(z.end_time);
+        if (globalI >= s && globalI <= e && b.close >= z.low && b.close <= z.high) near.push(`中枢#${z.idx} ${fmt(z.low)}-${fmt(z.high)}`);
+      }
+      tip.textContent = `${b.time}\nO ${fmt(b.open)} H ${fmt(b.high)} L ${fmt(b.low)} C ${fmt(b.close)}\nV ${fmtVol(b.vol)}\nDIF ${b.dif.toFixed(4)} DEA ${b.dea.toFixed(4)} MACD ${b.macd.toFixed(4)}${near.length ? '\n' + near.join('\n') : ''}`;
+      tip.style.display = 'block';
+      tip.style.left = Math.min(rect.width - 210, x + 14) + 'px';
+      tip.style.top = Math.max(8, evt.clientY - rect.top - 20) + 'px';
+      draw();
+    }
+    canvas.addEventListener('wheel', evt => {
+      evt.preventDefault();
+      const old = state.count;
+      const factor = evt.deltaY < 0 ? 0.82 : 1.22;
+      state.count = Math.round(state.count * factor);
+      const rect = canvas.getBoundingClientRect();
+      const ratio = (evt.clientX - rect.left) / rect.width;
+      state.start += Math.round((old - state.count) * ratio);
+      draw();
+    }, { passive: false });
+    canvas.addEventListener('mousedown', evt => { state.dragging = true; state.dragX = evt.clientX; state.dragStart = state.start; });
+    window.addEventListener('mouseup', () => { state.dragging = false; });
+    window.addEventListener('mousemove', evt => {
+      if (state.dragging) {
+        const p = project();
+        const delta = Math.round((state.dragX - evt.clientX) / p.xStep);
+        state.start = state.dragStart + delta; draw();
+      } else if (evt.target === canvas) updateTooltip(evt);
+    });
+    canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; state.hover = null; draw(); });
+    document.querySelectorAll('[data-layer]').forEach(el => {
+      el.addEventListener('change', e => { state.layers[e.target.dataset.layer] = e.target.checked; draw(); });
+    });
+    document.getElementById('zoomIn').onclick = () => { state.count = Math.round(state.count * .75); draw(); };
+    document.getElementById('zoomOut').onclick = () => { state.count = Math.round(state.count * 1.35); draw(); };
+    document.getElementById('reset').onclick = () => {
+      state.count = initCount[state.level] || levelData().bars.length;
+      state.start = Math.max(0, levelData().bars.length - state.count); draw();
+    };
+    document.getElementById('refreshStruct').onclick = () => { refreshStructure(); };
+    window.addEventListener('resize', resizeCanvas);
+
+    // ---------- 实时数据 ----------
+    function fmtTencentTime(dateStr, timeStr) {
+      const d = (dateStr || '').replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+      const t = (timeStr || '').padStart(6, '0');
+      return d + ' ' + t.slice(0, 2) + ':' + t.slice(2, 4) + ':' + t.slice(4, 6);
+    }
+    // 浏览器端直连腾讯行情（script 注入，无跨域限制）
+    function parseTencent(raw) {
+      if (!raw) return null;
+      // script 标签加载后 window.v_sh000001 是裸行情串；少数场景也可能传入完整 var 声明。
+      const m = String(raw).match(/v_(?:sh|sz)\d+="([^"]*)"/);
+      const payload = m && m[1] ? m[1] : String(raw);
+      const f = payload.split('~');
+      if (f.length < 35) return null;
+      const price = parseFloat(f[3]);
+      const prev = parseFloat(f[4]);
+      const open = parseFloat(f[5]);
+      const high = parseFloat(f[33]);
+      const low = parseFloat(f[34]);
+      // 腾讯 f[30] 是合并时间串 "YYYYMMDDHHMMSS"，不是分开的日期/时间
+      const dt = f[30] || '';
+      const dateStr = dt.slice(0, 8);
+      const timeStr = dt.slice(8, 14);
+      const tt = parseInt(timeStr, 10);
+      const market_status = (tt >= 93000 && tt <= 150000) ? '盘中' : (tt > 0 ? '已收盘' : '等待开盘');
+      const pct = prev ? (price - prev) / prev * 100 : 0;
+      return {
+        name: f[1] || SYMBOL, price, prev_close: prev, open, high, low,
+        pct, date: dateStr, time: timeStr, market_status,
+        updated_at: fmtTencentTime(dateStr, timeStr),
+        data_freshness: dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
+      };
+    }
+    // 腾讯 gtimg（script 注入全局变量 v_<symbol>）
+    function fetchGtimg() {
+      return new Promise((resolve) => {
+        const s = document.createElement('script');
+        let done = false;
+        const varName = 'v_' + SYMBOL_FULL;
+        const fin = () => {
+          if (done) return; done = true;
+          try { resolve(parseTencent(window[varName] || '')); }
+          catch (e) { resolve(null); }
+          s.onload = s.onerror = null; s.remove();
+        };
+        s.onload = fin;
+        s.onerror = () => { resolve(null); s.remove(); };
+        s.src = 'https://qt.gtimg.cn/q=' + SYMBOL_FULL;
+        document.head.appendChild(s);
+        setTimeout(fin, 2500);
+      });
+    }
+    // 东方财富 JSONP 兜底（腾讯被网络拦截时仍能取到实时价）
+    function fetchEastmoney() {
+      return new Promise((resolve) => {
+        const wname = '_emcb' + Date.now() + Math.floor(Math.random() * 1e6);
+        const s = document.createElement('script');
+        let done = false;
+        // 东财 secid: 沪市=1.xxx, 深市=0.xxx
+        const emSecid = (SYMBOL_PREFIX === 'sz' ? '0.' : '1.') + SYMBOL;
+        const fin = (d) => {
+          if (done) return; done = true;
+          try { resolve(parseEastmoney(d)); } catch (e) { resolve(null); }
+          window[wname] = null; s.onload = s.onerror = null; s.remove();
+        };
+        window[wname] = fin;
+        s.onerror = () => { resolve(null); s.remove(); };
+        s.src = 'https://push2.eastmoney.com/api/qt/stock/get?secid=' + emSecid + '&fields=f43,f44,f45,f46,f47,f57,f58,f60,f86&_=' + Date.now() + '&cb=' + wname;
+        document.head.appendChild(s);
+        setTimeout(() => { if (!done) { done = true; window[wname] = null; resolve(null); s.remove(); } }, 2500);
+      });
+    }
+    function parseEastmoney(d) {
+      if (!d || !d.data) return null;
+      const x = d.data;
+      // 字段语义：f43=最新价 f44=最高 f45=最低 f46=今开 f47=成交量(手) f60=昨收
+      // ETF 价格是 ×1000 的整数（3.928 传成 3928），指数价格通常是 ×100 的整数（3500.12 传成 350012）
+      const scale = curType() === 'index' ? 100 : 1000;
+      const price = parseFloat(x.f43) / scale; if (!(price > 0)) return null;
+      const high = parseFloat(x.f44) / scale || 0;
+      const low = parseFloat(x.f45) / scale || 0;
+      const open = parseFloat(x.f46) / scale || 0;
+      const prev = parseFloat(x.f60) / scale || 0;
+      const t = parseInt(x.f86, 10) || 0;
+      const dt = new Date(t * 1000);
+      const pad = n => String(n).padStart(2, '0');
+      const dateStr = '' + dt.getFullYear() + pad(dt.getMonth() + 1) + pad(dt.getDate());
+      const timeStr = '' + pad(dt.getHours()) + pad(dt.getMinutes()) + pad(dt.getSeconds());
+      const tt = parseInt(timeStr, 10);
+      const market_status = (tt >= 93000 && tt <= 150000) ? '盘中' : (tt > 0 ? '已收盘' : '等待开盘');
+      const pct = prev ? (price - prev) / prev * 100 : 0;
+      return {
+        name: x.f58 || SYMBOL, price, prev_close: prev, open, high, low,
+        pct, date: dateStr, time: timeStr, market_status,
+        updated_at: fmtTencentTime(dateStr, timeStr),
+        data_freshness: dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
+      };
+    }
+
+    // 客户端复刻后端「下一步操作建议」逻辑（无后端时也能算）
+    function levelSignal(lv) {
+      const bars = lv.bars, ch = lv.chan;
+      const last = bars[bars.length - 1].close;
+      const bis = ch.bis || [], zss = ch.zss || [], bsps = ch.bsps || [];
+      const last_bi = bis.length ? bis[bis.length - 1] : null;
+      const last_zs = zss.length ? zss[zss.length - 1] : null;
+      const direction = last_bi ? last_bi.direction : 'side';
+      let trend_up = false, trend_down = false;
+      if (bis.length >= 2) {
+        const a = bis[bis.length - 2], b = bis[bis.length - 1];
+        trend_up = (b.end_value > a.end_value) && (b.start_value > a.start_value);
+        trend_down = (b.end_value < a.end_value) && (b.start_value < a.start_value);
+      }
+      let pos = 'none';
+      if (last_zs) {
+        if (last > last_zs.high) pos = 'above';
+        else if (last < last_zs.low) pos = 'below';
+        else pos = 'inside';
+      }
+      let recent = null;
+      if (bsps.length) {
+        recent = Object.assign({}, bsps[bsps.length - 1]);
+        const cur_idx = last_bi ? last_bi.idx : 0;
+        recent.active = (recent.bi_idx || 0) >= cur_idx - 3;
+      }
+      return { last, direction, trend_up, trend_down, pos,
+        zs: last_zs ? [last_zs.low, last_zs.high] : null, recent };
+    }
+    function biasOf(grp) {
+      const up = grp.some(x => x.trend_up || (x.direction === 'up' && ['above', 'inside'].includes(x.pos)));
+      const down = grp.some(x => x.trend_down || (x.direction === 'down' && ['below', 'inside'].includes(x.pos)));
+      if (up && !down) return '偏多';
+      if (down && !up) return '偏空';
+      return '震荡';
+    }
+    function computeSuggestionClient(data, quote) {
+      const levels = (data && data.levels) || {};
+      const order = ['daily', '30min', '15min', '5min', '1min'];
+      const sigs = {};
+      for (const lv of order) if (levels[lv]) sigs[lv] = levelSignal(levels[lv]);
+      // 以当前选中级别为主，向上/向下各取一级做联立
+      const cur = state.level || 'daily';
+      const curIdx = order.indexOf(cur);
+      const upperLv = curIdx > 0 ? order[curIdx - 1] : null;       // 上一级（更大周期）
+      const lowerLv = curIdx < order.length - 1 ? order[curIdx + 1] : null; // 下一级（更小周期）
+      const curSig = sigs[cur];
+      const upSig = upperLv ? sigs[upperLv] : null;
+      const downSig = lowerLv ? sigs[lowerLv] : null;
+
+      // 当前级别方向（最直接的依据）
+      const cur_bias = curSig ? biasOf([curSig]) : '震荡';
+      // 大级别作为背景（如果存在上一级）
+      const big_bias = upSig ? biasOf([upSig]) : cur_bias;
+      // 小级别用于捕捉买卖点（如果存在下一级）
+      const small_bsp = (downSig && downSig.recent && downSig.recent.active) ? downSig.recent
+                     : (curSig && curSig.recent && curSig.recent.active) ? curSig.recent : null;
+
+      const pos_word = { above: '中枢上方（强势区）', below: '中枢下方（弱势区）', inside: '中枢内部（震荡区）', none: '暂无中枢参考' };
+      const lvName = levelNames[cur] || cur;
+      const upName = upperLv ? (levelNames[upperLv] || upperLv) : null;
+      const downName = lowerLv ? (levelNames[lowerLv] || lowerLv) : null;
+
+      const bullets = [];
+      // 第1条：当前级别结构
+      if (curSig) {
+        bullets.push(`【${lvName}】当前方向${cur_bias}，现价位于${pos_word[curSig.pos] || ''}。`);
+      }
+      // 第2条：上一级大级别作为背景
+      if (upSig && upName) {
+        bullets.push(`【${upName}（更大周期）】方向${big_bias}，${big_bias === cur_bias ? '与当前级别共振' : '与当前级别背离'}，${big_bias === cur_bias ? '顺势信号可信度更高' : '注意可能出现级别间冲突'}。`);
+      }
+      // 第3条：下一级小级别捕捉买卖点
+      if (small_bsp && downName) {
+        const kind = small_bsp.is_buy ? '买点' : '卖点';
+        const word = small_bsp.is_buy ? '低吸' : '减仓/止盈';
+        bullets.push(`【${downName}（更小周期）】刚出现${kind}信号 ${small_bsp.types.join(',')}（${fmt(small_bsp.value)}），是${lvName}级别的短线${word}参考位。`);
+      } else if (downName) {
+        bullets.push(`【${downName}（更小周期）】暂无新的买卖点，继续观察。`);
+      }
+      // 第4条：现价
+      if (quote) {
+        const pct = quote.pct || 0;
+        const arrow = pct > 0 ? '涨' : (pct < 0 ? '跌' : '平');
+        bullets.push(`现价 ${curType()==='index'?'':'¥'}${fmt(quote.price)}（${arrow} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%）。`);
+      }
+
+      // 操作建议：以当前级别 bias 为主，参考大小级别
+      let action = '';
+      const sameDir = (cur_bias === big_bias);  // 当前级别与大级别是否同向
+      if (cur_bias === '偏多' && small_bsp && small_bsp.is_buy) {
+        action = sameDir
+          ? `${lvName}级别与大级别共振偏多，小级别回踩给买点——可分批跟进，止损放中枢下沿。`
+          : `${lvName}级别偏多但大级别(${upName})还没转多，先当反弹做，轻仓试探，突破大级别中枢再加。`;
+      } else if (cur_bias === '偏多' && small_bsp && !small_bsp.is_buy) {
+        action = `${lvName}级别偏多但小级别出现卖点，仓位重的先落袋一部分，等回调不破中枢再接回。`;
+      } else if (cur_bias === '偏多') {
+        action = `${lvName}级别还在上涨段、没到卖点，拿住即可；但别追高加仓，等回踩机会。`;
+      } else if (cur_bias === '偏空' && small_bsp && small_bsp.is_buy) {
+        action = sameDir
+          ? `${lvName}级别与大级别同步偏空，小级别买点只当反弹，轻仓快进快出。`
+          : `${lvName}级别已转多但大级别(${upName})还弱，等大级别确认再动手更稳。`;
+      } else if (cur_bias === '偏空' && small_bsp && !small_bsp.is_buy) {
+        action = `${lvName}级别偏空且小级别卖点出现，顺势减仓，别接飞刀。`;
+      } else if (cur_bias === '偏空') {
+        action = `${lvName}级别弱势震荡，观望为主，等出现止跌买点再考虑。`;
+      } else {
+        action = `${lvName}级别多空胶着，箱体里高抛低吸或干脆不动，等方向明朗。`;
+      }
+      bullets.push('操作参考：' + action);
+      const risk = '缠论是技术参考，不是买卖指令。ETF 有波动风险，以上仅为基于历史结构的个人研究记录，不构成投资建议。';
+      return { bias: cur_bias, action, bullets, risk, level: cur, _curSig: curSig };
+    }
+
+    // 后端优先的更新（仅本地/后端部署生效）
+    function updateTicker(snap) {
+      const q = snap.quote;
+      const st = document.getElementById('mStatus');
+      st.textContent = snap.market_status;
+      st.className = 'badge' + (snap.market_status === '盘中' ? ' on' : '');
+      document.getElementById('mUpdated').innerHTML = '<span class="live-dot"></span>实时数据更新于 ' + snap.updated_at;
+      document.getElementById('mFresh').textContent = 'K线结构全量刷新: ' + snap.data_freshness + ' ｜ 实时价: 新浪财经(每3秒)';
+      if (q) {
+        const up = q.pct >= 0;
+        const color = up ? getCss('--up') : getCss('--down');
+        const pe = document.getElementById('mPrice'); pe.textContent = fmt(q.price); pe.style.color = color;
+        const ce = document.getElementById('mPct'); ce.textContent = (up ? '+' : '') + q.pct.toFixed(2) + '%'; ce.style.color = color;
+        document.getElementById('mName').textContent = q.name + ' (' + SYMBOL.toUpperCase() + '.' + SYMBOL_PREFIX.toUpperCase() + ')';
+        document.getElementById('mOHL').textContent = `开 ${fmt(q.open)}  高 ${fmt(q.high)}  低 ${fmt(q.low)}  昨收 ${fmt(q.prev_close)}`;
+        document.getElementById('mTime').textContent = q.date + ' ' + q.time;
+      }
+    }
+    function updateSuggestion(snap) {
+      const s = snap.suggestion; if (!s) return;
+      const be = document.getElementById('sBias');
+      be.textContent = s.bias;
+      be.className = 'bias ' + (s.bias === '偏多' ? 'bull' : (s.bias === '偏空' ? 'bear' : 'flat'));
+      document.getElementById('sBullets').innerHTML = (s.bullets || []).map(t => `<li>${t}</li>`).join('');
+      document.getElementById('sRisk').textContent = s.risk || '';
+    }
+    function applyLive(snap) {
+      livePrice = snap.live_price;
+      if (livePrice != null && DATA && DATA.levels['1min']) {
+        const b = DATA.levels['1min'].bars;
+        const last = b[b.length - 1];
+        last.close = livePrice;
+        if (livePrice > last.high) last.high = livePrice;
+        if (livePrice < last.low) last.low = livePrice;
+      }
+      updateTicker(snap); updateSuggestion(snap);
+      if (state.level) draw();
+    }
+
+    // 浏览器端实时价驱动（任何部署都生效，包括纯静态）
+    // 用 chanlun-engine.js 在浏览器端实时重算指定级别的缠论结构
+    // bars 原地写入 dif/dea/macd，返回 { chan: {...} } 直接替换 DATA.levels[lv]
+    function recomputeLevel(lv) {
+      if (!window.ChanlunEngine || !DATA || !DATA.levels[lv]) return;
+      const bars = DATA.levels[lv].bars;
+      if (!bars || bars.length < 10) return;
+      const result = ChanlunEngine.computeForDashboard(bars, { symbol: SYMBOL, type: curType(), level: lv });
+      // 只替换 chan 结构，保留 bars（已被引擎原地更新了 dif/dea/macd）
+      DATA.levels[lv].chan = result.chan;
+    }
+
+    // 实时价更新后，重算所有级别的缠论结构（笔/中枢/买卖点全部实时）
+    function recomputeAllLevels() {
+      if (!window.ChanlunEngine || !DATA || !DATA.levels) return;
+      for (const lv of ['daily', '30min', '15min', '5min', '1min']) {
+        if (DATA.levels[lv]) recomputeLevel(lv);
+      }
+    }
+
+    function normalizeQuoteScale(quote) {
+      if (!quote || !DATA || !DATA.levels || !(quote.price > 0)) return quote;
+      // 只对指数类型做自动纠偏（指数价格波动小，ratio 异常一定是缩放问题）
+      // ETF/股票类型不做纠偏——它们的实时价就是小数（3.581），不需要除以1000
+      // 之前的无差别纠偏会在跳空/涨跌停时误判，导致价格被错误放大或缩小
+      if (curType() !== 'index') return quote;
+      const grp = DATA.levels[state.level] || DATA.levels['1min'] || DATA.levels.daily;
+      const bars = grp && grp.bars;
+      const ref = bars && bars.length ? Number(bars[bars.length - 1].close) : 0;
+      if (!(ref > 0)) return quote;
+      const ratio = quote.price / ref;
+      let scale = 1;
+      if (ratio > 50 && ratio < 150) scale = 100;
+      else if (ratio > 500 && ratio < 1500) scale = 1000;
+      if (scale === 1) return quote;
+      const q = { ...quote };
+      for (const k of ['price', 'prev_close', 'open', 'high', 'low']) {
+        if (q[k] != null && !isNaN(q[k])) q[k] = Number(q[k]) / scale;
+      }
+      q.pct = q.prev_close ? (q.price - q.prev_close) / q.prev_close * 100 : quote.pct;
+      q.scale_fixed = scale;
+      return q;
+    }
+    function applyLivePrice(quote) {
+      if (!quote) return;
+      quote = normalizeQuoteScale(quote);
+      // 价格合理性校验：实时价 vs 当日K线价格区间 的偏差不能太大
+      // 基准用当日1分钟K线的最高/最低价（而非最后一根close，避免基准本身被脏数据污染）
+      // ETF/股票：涨跌停±10%，留余量用 ±15%
+      // 指数：日内波动更小，用 ±8%
+      // 防止行情源瞬时返回错误价格（如 1.472 写入 515050 实际 1.2 的行情）
+      if (DATA && DATA.levels && quote.price > 0) {
+        const refGrp = DATA.levels['1min'] || DATA.levels.daily;
+        if (refGrp && refGrp.bars && refGrp.bars.length) {
+          const bars = refGrp.bars;
+          // 取当日K线的价格区间作为基准（最多回看最近240根≈1个交易日）
+          const lookback = Math.min(bars.length, 240);
+          let dayHigh = 0, dayLow = Infinity;
+          for (let i = bars.length - lookback; i < bars.length; i++) {
+            if (bars[i].high > dayHigh) dayHigh = bars[i].high;
+            if (bars[i].low < dayLow) dayLow = bars[i].low;
+          }
+          if (dayHigh > 0 && dayLow < Infinity) {
+            const isIndex = curType() === 'index';
+            const maxAllowed = dayHigh * (isIndex ? 1.08 : 1.15);
+            const minAllowed = dayLow * (isIndex ? 0.92 : 0.85);
+            if (quote.price > maxAllowed || quote.price < minAllowed) {
+              console.warn('[applyLivePrice] 价格异常被拒绝: quote.price=' + quote.price + ' dayRange=[' + dayLow + ',' + dayHigh + '] 允许[' + minAllowed.toFixed(3) + ',' + maxAllowed.toFixed(3) + ']');
+              return; // 拒绝这次更新，不写入 K 线也不推送
+            }
+          }
+        }
+      }
+      livePrice = quote.price;
+      // 实时价更新所有级别的最后一根 K 线（不仅是 1min）
+      // 策略：当前正在形成的 K 线，其 close 用实时价刷新；high/low 同步扩展
+      if (DATA && DATA.levels) {
+        for (const lv of ['daily', '30min', '15min', '5min', '1min']) {
+          const grp = DATA.levels[lv];
+          if (!grp || !grp.bars || !grp.bars.length) continue;
+          const last = grp.bars[grp.bars.length - 1];
+          last.close = livePrice;
+          if (livePrice > last.high) last.high = livePrice;
+          if (livePrice < last.low) last.low = livePrice;
+        }
+      }
+      // 如果 K 线增量更新追加了新数据，调整当前级别视图范围跟随最新
+      if (window.__lastKlineUpdate && state.level) {
+        const lv = state.level;
+        const bars = DATA.levels[lv].bars;
+        const n = bars.length;
+        // 保持显示窗口大小，但起点跟随到末尾（用户如已缩放/拖拽，不强行覆盖）
+        // 仅当当前视图已贴近末尾时才跟随，避免打断用户操作
+        const cur = state.start + state.count;
+        if (cur >= n - 2 - (window.__lastKlineUpdate[lv]?.added || 0)) {
+          state.start = Math.max(0, n - state.count);
+        }
+        window.__lastKlineUpdate = null;
+      }
+      // 浏览器端实时重算缠论结构（笔/中枢/买卖点）
+      recomputeAllLevels();
+      checkNewSells();
+      const st = document.getElementById('mStatus');
+      st.textContent = quote.market_status;
+      st.className = 'badge' + (quote.market_status === '盘中' ? ' on' : '');
+      document.getElementById('mUpdated').innerHTML = '<span class="live-dot"></span>实时数据更新于 ' + quote.updated_at;
+      // 显示 K 线末根时间作为结构新鲜度的证据
+      const lvLast = DATA && DATA.levels && DATA.levels['1min'] && DATA.levels['1min'].bars;
+      const lastKlineTime = lvLast ? lvLast[lvLast.length - 1].time : '--';
+      document.getElementById('mFresh').textContent = `K线结构实时计算 ｜ 1分钟末根: ${lastKlineTime} ｜ 实时价: 腾讯行情`;
+      const up = quote.pct >= 0; const color = up ? getCss('--up') : getCss('--down');
+      const pe = document.getElementById('mPrice'); pe.textContent = fmt(quote.price); pe.style.color = color;
+      const ce = document.getElementById('mPct'); ce.textContent = (up ? '+' : '') + quote.pct.toFixed(2) + '%'; ce.style.color = color;
+      document.getElementById('mName').textContent = quote.name + ' (' + SYMBOL.toUpperCase() + '.' + SYMBOL_PREFIX.toUpperCase() + ')';
+      document.getElementById('mOHL').textContent = `开 ${fmt(quote.open)}  高 ${fmt(quote.high)}  低 ${fmt(quote.low)}  昨收 ${fmt(quote.prev_close)}`;
+      document.getElementById('mTime').textContent = fmtTencentTime(quote.date, quote.time);
+      // 缓存最新 quote 供切换级别时使用
+      window.__lastQuote = quote;
+      const s = computeSuggestionClient(DATA, quote);
+      const be = document.getElementById('sBias');
+      be.textContent = (levelNames[s.level] || s.level) + ' · ' + s.bias;
+      be.className = 'bias ' + (s.bias === '偏多' ? 'bull' : (s.bias === '偏空' ? 'bear' : 'flat'));
+      document.getElementById('sBullets').innerHTML = (s.bullets || []).map(t => `<li>${t}</li>`).join('');
+      document.getElementById('sRisk').textContent = s.risk || '';
+      // 渲染实时状态条（让用户直观看到建议随价格在变）
+      renderLiveBar(s, quote);
+      if (state.level) draw();
+    }
+    // 实时状态条：现价、距中枢边沿价差、涨跌幅、更新时间
+    function renderLiveBar(s, quote) {
+      const bar = document.getElementById('sLiveBar');
+      if (!bar) return;
+      const curSig = s._curSig; // 由 computeSuggestionClient 附带
+      const zs = curSig && curSig.zs; // [low, high]
+      const price = quote ? quote.price : null;
+      const pct = quote ? quote.pct : 0;
+      const cells = [];
+      // 现价 + 涨跌幅
+      if (price != null) {
+        const up = pct >= 0;
+        cells.push(`<div class="cell ${up ? 'pos' : 'neg'}"><b style="color:${up ? getCss('--up') : getCss('--down')}">${curType()==='index'?'':'¥'}${fmt(price)}</b><span>${up ? '+' : ''}${pct.toFixed(2)}% ｜ 现价</span></div>`);
+      }
+      // 距中枢上沿 / 下沿
+      if (zs && price != null) {
+        const distHigh = price - zs[1];
+        const distLow = price - zs[0];
+        const clsH = distHigh >= 0 ? 'pos' : 'neg';
+        const clsL = distLow >= 0 ? 'pos' : 'neg';
+        cells.push(`<div class="cell ${clsH}"><b>${distHigh >= 0 ? '+' : ''}${fmt(distHigh)}</b><span>距中枢上沿 ${fmt(zs[1])}</span></div>`);
+        cells.push(`<div class="cell ${clsL}"><b>${distLow >= 0 ? '+' : ''}${fmt(distLow)}</b><span>距中枢下沿 ${fmt(zs[0])}</span></div>`);
+      } else {
+        cells.push(`<div class="cell neutral"><b>—</b><span>当前级别暂无中枢</span></div>`);
+      }
+      // 更新时间
+      if (quote && quote.updated_at) {
+        cells.push(`<div class="cell neutral"><b><span class="live-dot"></span>${quote.updated_at.slice(11)}</b><span>${quote.market_status} ｜ ${levelNames[s.level] || s.level}级别</span></div>`);
+      }
+      bar.innerHTML = cells.join('');
+    }
+    async function tickLive() {
+      // 1. K线增量更新：每3秒从腾讯mkline拉取最近K线，追加新K线到各级别尾部
+      //    （这样 1分钟/5分钟等周期新K线会自动出现，不再停在7月8日）
+      let klineUpdated = false;
+      if (window.LiveKline && DATA && DATA.levels) {
+        try {
+          const r = await LiveKline.updateAllLevels(DATA.levels);
+          // 有新数据则记录，供下方 applyLivePrice 后触发重算
+          let hasNew = false;
+          for (const lv in r) {
+            if (r[lv].added > 0 || r[lv].updated > 0) hasNew = true;
+          }
+          window.__lastKlineUpdate = hasNew ? r : null;
+          klineUpdated = hasNew;
+        } catch (e) { /* 忽略瞬时错误 */ }
+      }
+      // 2. 实时价：主源腾讯 gtimg；兜底东方财富 JSONP
+      const g = await fetchGtimg();
+      if (g && g.price > 0) { applyLivePrice(g); return; }
+      const e = await fetchEastmoney();
+      if (e && e.price > 0) { applyLivePrice(e); return; }
+      // 3. 如果实时价两个源都失败，但K线有增量更新，仍需重算缠论结构+重绘
+      //    （否则走势图上会显示"裸K线无缠论标注"）
+      if (klineUpdated) {
+        recomputeAllLevels();
+        checkNewSells();
+        renderSide();
+        if (state.level) draw();
+      }
+    }
+
+    let LIVE = true;
+    function buildStaticSnap(data) {
+      let fresh = '';
+      const lv = data.levels || {};
+      for (const k of ['daily', '30min', '15min', '5min', '1min']) {
+        const b = lv[k] && lv[k].bars;
+        if (b && b.length) fresh = String(b[b.length - 1].time).slice(0, 10);
+      }
+      return {
+        symbol: data.symbol, source: data.source, levels: data.levels,
+        live_price: null, quote: null,
+        market_status: '静态快照', updated_at: fresh, data_freshness: fresh,
+        suggestion: {
+          bias: '—',
+          bullets: ['K线结构为快照（截至 ' + fresh + '），正在通过浏览器直连腾讯行情获取实时价…'],
+          risk: '本看板为缠论结构可视化，所有信号仅供学习研究，不构成投资建议。'
+        }
+      };
+    }
+    async function loadFull() {
+      // 确保 LiveKline 的 symbol 与当前标的一致（增量更新依赖此 symbol 拉腾讯数据）
+      if (window.LiveKline) LiveKline.setSymbol(SYMBOL_FULL);
+      // 所有标的均从腾讯实时拉取历史K线
+      return await loadFromTencent();
+    }
+    // 从腾讯 API 拉取所有级别历史K线，构建 snap 对象
+    async function loadFromTencent() {
+      LIVE = false;
+      if (window.LiveKline) LiveKline.setSymbol(SYMBOL_FULL);
+      const hist = await LiveKline.fetchAllHistory();
+      const levelsData = {};
+      for (const lv in hist) {
+        levelsData[lv] = LiveKline.buildLevelData(hist[lv]);
+      }
+      const meta = SYMBOL_META[SYMBOL] || { name: SYMBOL, prefix: SYMBOL_PREFIX };
+      return {
+        symbol: SYMBOL,
+        source: '腾讯行情(浏览器实时拉取)',
+        levels: levelsData,
+        live_price: null, quote: null,
+        market_status: '加载中', updated_at: '--', data_freshness: '--',
+        suggestion: {
+          bias: '—',
+          bullets: ['已从腾讯拉取历史K线 ' + Object.keys(hist).map(k => k + ':' + hist[k].length).join(' ') + '，正在重算缠论结构并获取实时价…'],
+          risk: '本看板为缠论结构可视化，所有信号仅供学习研究，不构成投资建议。'
+        }
+      };
+    }
+    async function poll() {
+      try {
+        const snap = await fetch('/api/snapshot').then(r => r.json());
+        SNAP = snap; applyLive(snap);
+      } catch (e) { /* 忽略瞬时错误 */ }
+    }
+    async function refreshStructure() {
+      try {
+        const snap = await loadFull();
+        applySnap(snap);
+      } catch (e) {}
+    }
+    // 把 snap 应用到全局状态并重算结构、渲染
+    function applySnap(snap) {
+      SNAP = snap;
+      DATA = { symbol: snap.symbol, source: snap.source, levels: snap.levels };
+      levels = ['daily', '30min', '15min', '5min', '1min'].filter(l => DATA.levels[l]);
+      // 默认展示1分钟级别（优先），不存在则回退到最小级别
+      state.level = levels.includes('1min') ? '1min' : levels[levels.length - 1];
+      state.count = initCount[state.level] || DATA.levels[state.level].bars.length;
+      state.start = Math.max(0, DATA.levels[state.level].bars.length - state.count);
+      state.hover = null;
+      // 重算缠论结构
+      recomputeAllLevels();
+      // 静默记录已有卖点（之后tickLive才检测新增卖点并推送通知）
+      seedSeenSells();
+      // 重新渲染 tabs 和侧边栏
+      renderTabs();
+      // 强制重置 canvas 尺寸（清空旧画面）
+      resizeCanvas();
+      // 应用实时数据（含建议重算）
+      applyLive(snap);
+      // 再次确保 draw（applyLive 内部的 draw 在 snap.quote=null 时可能跳过部分更新）
+      draw();
+    }
+    // 切换标的：改全局 SYMBOL → 重新加载K线 → 重算结构 → 渲染
+    async function switchSymbol(newSymbol) {
+      if (newSymbol === SYMBOL + '' || newSymbol === SYMBOL_FULL) return; // 已是当前标的
+      const meta = SYMBOL_META[newSymbol.replace(/^(sh|sz)/, '')];
+      if (!meta) { console.warn('未知标的', newSymbol); return; }
+      const code = newSymbol.replace(/^(sh|sz)/, '');
+      SYMBOL = code;
+      SYMBOL_PREFIX = meta.prefix;
+      SYMBOL_FULL = meta.prefix + code;
+      // 重置实时价（避免旧价格残留在画面上）
+      livePrice = null;
+      window.__lastQuote = null;
+      // 更新副标题
+      document.getElementById('mSub').textContent = `${SYMBOL} ${meta.name} · 五级联立 · 缠论结构实时计算`;
+      updateBuildBadge();
+      // 清空当前数据，显示加载中
+      document.getElementById('sBullets').innerHTML = '<li>正在从腾讯拉取 ' + meta.name + ' 的历史K线…</li>';
+      document.getElementById('sBias').textContent = '加载中';
+      document.getElementById('bspList').innerHTML = '';
+      document.getElementById('zsList').innerHTML = '';
+      document.getElementById('stats').innerHTML = '';
+      // 清空 canvas（画加载提示）
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#667085'; ctx.font = '16px Segoe UI'; ctx.textAlign = 'center';
+      ctx.fillText('正在加载 ' + meta.name + ' …', canvas.width / (window.devicePixelRatio||1) / 2, 100);
+      ctx.textAlign = 'start';
+      // 重新加载K线
+      const snap = await loadFull();
+      applySnap(snap);
+      // 立即手动触发一次实时价获取（loadFromTencent 的 snap.quote 是 null，需要实时价填充）
+      tickLive();
+      // 切换后立即重算一次操作建议（针对新标的的当前级别）
+      refreshSuggestionForCurrentLevel();
+    }
+    async function init() {
+     try {
+      // 从 URL 参数读取标的（支持 ?symbol=515380 直接进入）
+      const urlSymbol = new URLSearchParams(location.search).get('symbol');
+      if (urlSymbol && SYMBOL_META[urlSymbol]) {
+        const meta = SYMBOL_META[urlSymbol];
+        SYMBOL = urlSymbol;
+        SYMBOL_PREFIX = meta.prefix;
+        SYMBOL_FULL = meta.prefix + urlSymbol;
+      }
+      // 更新下拉框选中状态
+      const sel = document.getElementById('symbolSelect');
+      if (sel) {
+        sel.value = SYMBOL_FULL;
+        sel.onchange = () => switchSymbol(sel.value);
+      }
+      // 副标题
+      const meta = SYMBOL_META[SYMBOL] || { name: SYMBOL };
+      document.getElementById('mSub').textContent = `${SYMBOL} ${meta.name} · 五级联立 · 缠论结构实时计算`;
+      updateBuildBadge();
+
+      const snap = await loadFull();
+      applySnap(snap);
+      // 浏览器端实时价：任何部署都跑，纯静态也能实时
+      tickLive();
+      setInterval(tickLive, 3000);
+      if (LIVE) setInterval(poll, 3000);
+      requestNotifyPerm();  // 请求浏览器通知权限（静默，用户首次访问弹一次）
+    } catch (initErr) {
+      console.error('init失败:', initErr);
+      const dbg = document.getElementById('sBullets');
+      if (dbg) dbg.innerHTML = '<li style="color:#d44b45">加载失败: ' + (initErr.message||initErr) + '</li>';
+      const sb = document.getElementById('sBias'); if (sb) sb.textContent = '加载失败';
+    }
+    }
+    init();
+  </script>
+</body>
+</html>
