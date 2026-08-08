@@ -137,6 +137,20 @@
             <option value="sh000001">000001 上证指数</option>
             <option value="sz000300">000300 沪深300指数</option>
             <option value="sh000905">000905 中证500指数</option>
+            <option value="sh000852">000852 中证1000</option>
+            <option value="sh930792">930792 HK银行(HKD)</option>
+            <option value="shH30199">H30199 电力指数</option>
+            <option value="sh931027">931027 中证全指半导体</option>
+            <option value="shH30184">H30184 港股通大消费</option>
+            <option value="sh000680">000680 科创综指</option>
+            <option value="sz399006">399006 创业板指</option>
+            <option value="sz159915">159915 创业板ETF</option>
+            <option value="sh588000">588000 科创50ETF</option>
+            <option value="sh513180">513180 恒生科技ETF</option>
+            <option value="sh600183">600183 生益科技</option>
+            <option value="sh688008">688008 澜起科技</option>
+            <option value="sh688702">688702 盛科通信</option>
+
           </select></h1>
           <div class="sub" id="mSub">Vespa314/chan.py · 五级联立 · 缠论结构实时计算</div>
         </div>
@@ -233,6 +247,19 @@
       '000001':  { name: '上证指数',           prefix: 'sh', type: 'index', digits: 2 },
       '000300':  { name: '沪深300指数',        prefix: 'sz', type: 'index', digits: 2 },
       '000905':  { name: '中证500指数',        prefix: 'sh', type: 'index', digits: 2 },
+      '000852':  { name: '中证1000',          prefix: 'sh', type: 'index', digits: 2 },
+      '930792':  { name: 'HK银行(HKD)',        prefix: 'sh', type: 'index', digits: 2 },
+      'H30199':  { name: '电力指数',            prefix: 'sh', type: 'index', digits: 2 },
+      '931027':  { name: '中证全指半导体',       prefix: 'sh', type: 'index', digits: 2 },
+      'H30184':  { name: '港股通大消费',         prefix: 'sh', type: 'index', digits: 2 },
+      '000680':  { name: '科创综指',            prefix: 'sh', type: 'index', digits: 2 },
+      '399006':  { name: '创业板指',            prefix: 'sz', type: 'index', digits: 2 },
+      '159915':  { name: '创业板ETF',          prefix: 'sz', type: 'etf',   digits: 3 },
+      '588000':  { name: '科创50ETF',          prefix: 'sh', type: 'etf',   digits: 3 },
+      '513180':  { name: '恒生科技ETF',         prefix: 'sh', type: 'etf',   digits: 3 },
+      '600183':  { name: '生益科技',             prefix: 'sh', type: 'etf',   digits: 2 },
+      '688008':  { name: '澜起科技',             prefix: 'sh', type: 'etf',   digits: 2 },
+      '688702':  { name: '盛科通信',             prefix: 'sh', type: 'etf',   digits: 2 },
     };
     // 当前标的类型辅助函数
     function curType() { return (SYMBOL_META[SYMBOL] || {}).type || 'etf'; }
